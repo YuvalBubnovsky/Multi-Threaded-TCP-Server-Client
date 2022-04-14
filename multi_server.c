@@ -16,15 +16,22 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <pthread.h>
 
 #define PORT "3490" // the port users will be connecting to
 
 #define BACKLOG 10 // how many pending connections queue will hold
 
-
-void * sock_thread(void *arg){
+// Thread handler, sends a simple hello message to client, then closes the connection
+void *sock_thread(void *arg)
+{
     int new_sock = *((int *)arg);
+    sleep(1);
+    send(new_sock,"Hello from server",18,0);
+    close(new_sock);
+    pthread_exit(NULL);
 }
+
 void sigchld_handler(int s)
 {
     // waitpid() might overwrite errno, so we save and restore it:
@@ -121,7 +128,7 @@ int main(void)
 
     printf("server: waiting for connections...\n");
 
-    pthread_t tid[20];
+    pthread_t new_thread[10]; // We need to be able to server 10 connections at the same time
     int i = 0;
     while (1)
     { // main accept() loop
@@ -138,20 +145,22 @@ int main(void)
                   s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        if (pthread_create(&tid[i++], NULL, sock_thread, &new_fd) != 0){
-            perror(pthread_create);
-        }
-
-        if (i >= 20)
+        // create a new thread, assign it to our thread array and send the thread_id and socket FD to out thread handler
+        if (pthread_create(&new_thread[i++], NULL, sock_thread, &new_fd) != 0)
         {
+            printf("ERROR: Failed To Create Thread!\n");
+        }
+        
+        // Loop over our threads array and join all completed threads, freeing up resources
+        if(i>=10){
             i = 0;
-            while (i < 20)
-            {
-                pthread_join(tid[i++], NULL);
+            while(i<10){
+                pthread_join(new_thread[i++],NULL);
             }
             i = 0;
         }
-        close(new_fd); // parent doesn't need this
+        
+        
     }
 
     return 0;
